@@ -89,6 +89,95 @@ const getDadJoke = server.tool(
   }
 );
 
+// *** NEW: USPS Address Validation Tool ***
+const validateAddress = server.tool(
+  "validate-address",
+  "Validate a US address using the USPS API",
+  {
+    streetAddress: z.string().describe("The street address"),
+    city: z.string().describe("The city"),
+    state: z.string().describe("The 2-letter state code"),
+    zipCode: z.string().optional().describe("The 5-digit ZIP code"),
+  },
+  async (params: { streetAddress: string; city: string; state: string; zipCode?: string }) => {
+    try {
+      // 1. Get Access Token from USPS
+      const tokenResponse = await fetch("https://apis.usps.com/oauth2/v3/token", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+        },
+        body: new URLSearchParams({
+          grant_type: "client_credentials",
+          client_id: "LFYJG3AFb6vAJKlAL6p7vCGhjd7WMc3ekwbvJmm3K5GlMABj",  //process.env.USPS_CLIENT_ID || "",
+          client_secret: "HaqDK2ScCntotqsqYGyzVdQ2VDCLOX62bCA78MiRGe1a8hgKyMR2CkRLbdLrLVnV", //process.env.USPS_CLIENT_SECRET || "",
+        }),
+      });
+
+      if (!tokenResponse.ok) {
+        throw new Error("Failed to get USPS access token");
+      }
+
+      const tokenData = await tokenResponse.json();
+      const accessToken = tokenData.access_token;
+
+      // 2. Validate the Address
+      const validationUrl = new URL("https://apis.usps.com/addresses/v3/address");
+      validationUrl.searchParams.append("streetAddress", params.streetAddress);
+      validationUrl.searchParams.append("city", params.city);
+      validationUrl.searchParams.append("state", params.state);
+      if(params.zipCode) {
+        validationUrl.searchParams.append("ZIPCode", params.zipCode);
+      }
+
+      const validationResponse = await fetch(validationUrl.toString(), {
+        headers: {
+          "Authorization": `Bearer ${accessToken}`,
+          "Content-Type": "application/json",
+        },
+      });
+
+      if (!validationResponse.ok) {
+        throw new Error("Failed to validate address with USPS API");
+      }
+
+      const validationData = await validationResponse.json();
+
+      // 3. Process the Response
+      let feedback = "Address is invalid.";
+      if (validationData.address) {
+        const { DPVConfirmation } = validationData.additionalInfo || {};
+        if (DPVConfirmation === 'Y') {
+            feedback = "Address is valid.";
+        } else if (DPVConfirmation === 'D' || DPVConfirmation === 'S') {
+            const suggestedAddress = `${validationData.address.streetAddress}, ${validationData.address.city}, ${validationData.address.state} ${validationData.address.ZIPCode}-${validationData.address.ZIPPlus4}`;
+            feedback = `Address could be more accurate. Suggested address: ${suggestedAddress}`;
+        }
+      }
+
+      return {
+        content: [
+          {
+            type: "text",
+            text: feedback,
+          },
+        ],
+      };
+    } catch (error: any) {
+      console.error("Error in validateAddress tool:", error);
+      return {
+        content: [
+          {
+            type: "text",
+            text: `Error: ${error.message}`,
+          },
+        ],
+      };
+    }
+  }
+);
+
+
 const app = express();
 app.use(express.json());
 
