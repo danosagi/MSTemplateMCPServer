@@ -109,8 +109,8 @@ const validateAddress = server.tool(
         },
         body: new URLSearchParams({
           grant_type: "client_credentials",
-          client_id: process.env.USPS_CLIENT_ID || "",
-          client_secret: process.env.USPS_CLIENT_SECRET || "",
+          client_id: "LFYJG3AFb6vAJKlAL6p7vCGhjd7WMc3ekwbvJmm3K5GlMABj",//process.env.USPS_CLIENT_ID || "",
+          client_secret: "HaqDK2ScCntotqsqYGyzVdQ2VDCLOX62bCA78MiRGe1a8hgKyMR2CkRLbdLrLVnV",//process.env.USPS_CLIENT_SECRET || "",
         }),
       });
 
