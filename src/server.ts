@@ -89,7 +89,7 @@ const getDadJoke = server.tool(
   }
 );
 
-// *** NEW: USPS Address Validation Tool ***
+// *** Validate US Address in USPS ***
 const validateAddress = server.tool(
   "validate-address",
   "Validate a US address using the USPS API",
@@ -109,8 +109,8 @@ const validateAddress = server.tool(
         },
         body: new URLSearchParams({
           grant_type: "client_credentials",
-          client_id: "LFYJG3AFb6vAJKlAL6p7vCGhjd7WMc3ekwbvJmm3K5GlMABj",  //process.env.USPS_CLIENT_ID || "",
-          client_secret: "HaqDK2ScCntotqsqYGyzVdQ2VDCLOX62bCA78MiRGe1a8hgKyMR2CkRLbdLrLVnV", //process.env.USPS_CLIENT_SECRET || "",
+          client_id: process.env.USPS_CLIENT_ID || "",
+          client_secret: process.env.USPS_CLIENT_SECRET || "",
         }),
       });
 
@@ -129,8 +129,9 @@ const validateAddress = server.tool(
       if(params.zipCode) {
         validationUrl.searchParams.append("ZIPCode", params.zipCode);
       }
-
+      
       const validationResponse = await fetch(validationUrl.toString(), {
+        method: "GET", // Changed to GET as per documentation for this endpoint
         headers: {
           "Authorization": `Bearer ${accessToken}`,
           "Content-Type": "application/json",
@@ -138,21 +139,44 @@ const validateAddress = server.tool(
       });
 
       if (!validationResponse.ok) {
-        throw new Error("Failed to validate address with USPS API");
+         const errorText = await validationResponse.text();
+         console.error("USPS API Error:", errorText);
+         throw new Error(`Failed to validate address with USPS API. Status: ${validationResponse.status}`);
       }
-
+      
       const validationData = await validationResponse.json();
-
+      
       // 3. Process the Response
       let feedback = "Address is invalid.";
+      
       if (validationData.address) {
         const { DPVConfirmation } = validationData.additionalInfo || {};
-        if (DPVConfirmation === 'Y') {
-            feedback = "Address is valid.";
-        } else if (DPVConfirmation === 'D' || DPVConfirmation === 'S') {
-            const suggestedAddress = `${validationData.address.streetAddress}, ${validationData.address.city}, ${validationData.address.state} ${validationData.address.ZIPCode}-${validationData.address.ZIPPlus4}`;
-            feedback = `Address could be more accurate. Suggested address: ${suggestedAddress}`;
+        
+        // Normalize for comparison
+        const originalStreet = params.streetAddress.trim().toUpperCase();
+        const returnedStreet = validationData.address.streetAddress.trim().toUpperCase();
+
+        const suggestedAddress = `${validationData.address.streetAddress}, ${validationData.address.city}, ${validationData.address.state} ${validationData.address.ZIPCode}-${validationData.address.ZIPPlus4}`;
+
+        // *** NEW LOGIC ***
+        // If the API corrected the street, always provide it as a suggestion.
+        if (originalStreet !== returnedStreet) {
+             feedback = `Address was corrected. Suggested address: ${suggestedAddress}`;
+        } else {
+            // If the street is the same, check DPV codes.
+            if (DPVConfirmation === 'Y') {
+                feedback = "Address is valid.";
+            } else if (DPVConfirmation === 'D' || DPVConfirmation === 'S') {
+                // Address is valid but missing secondary info (e.g., apartment number)
+                feedback = `Address could be more accurate. Suggested address: ${suggestedAddress}`;
+            }
         }
+
+      } else {
+          // Handle cases where the API returns errors or no matches
+          if(validationData.errors && validationData.errors.length > 0) {
+              feedback = `Invalid Address. Reason: ${validationData.errors[0].text}`;
+          }
       }
 
       return {
